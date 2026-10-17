@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Wąż i jabłko: algorytm A*</title>
+<style>
+:root{--bg:#f3f1e8;--fg:#1d2a22;--muted:#5d6b61;--card:#fffdf6;--line:#cfcab6;--btn:#2f7d4a;--btnfg:#fff;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#16201a;--fg:#e9efe6;--muted:#9fb0a3;--card:#1f2b24;--line:#35453a;--btn:#4fae6f;--btnfg:#0d1a12}}
+:root[data-theme="dark"]{--bg:#16201a;--fg:#e9efe6;--muted:#9fb0a3;--card:#1f2b24;--line:#35453a;--btn:#4fae6f;--btnfg:#0d1a12}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:Georgia,"Times New Roman",serif;line-height:1.5}
+main{max-width:640px;margin:0 auto;padding:16px}
+h1{font-size:1.6rem;margin:0 0 4px}
+p.sub{margin:0 0 14px;color:var(--muted)}
+.board{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px}
+canvas{display:block;width:100%;height:auto;border-radius:6px;cursor:pointer}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:12px 0}
+button,.file{font:inherit;background:var(--btn);color:var(--btnfg);border:0;border-radius:8px;padding:8px 14px;cursor:pointer}
+button.alt,.file{background:transparent;color:var(--fg);border:1px solid var(--line)}
+button:focus-visible,input:focus-visible,label:focus-within{outline:2px solid var(--btn);outline-offset:2px}
+label{color:var(--muted);font-size:.95rem}
+.file input{display:none}
+#stat{margin:6px 0;min-height:1.5em}
+.small{color:var(--muted);font-size:.9rem}
+</style>
+</head>
+<body>
+<main>
+<h1>Wąż i jabłko</h1>
+<p class="sub">Wąż pełznie od startu do jabłka trasą wyznaczoną algorytmem A*.</p>
+<div class="board"><canvas id="c" width="560" height="560" aria-label="Plansza 20 na 20"></canvas></div>
+<div class="row">
+<button id="go">Start</button>
+<button id="reset" class="alt">Od nowa</button>
+<label>Prędkość <input id="spd" type="range" min="1" max="10" value="5"></label>
+<label><input id="show" type="checkbox"> Pokaż trasę</label>
+</div>
+<div class="row">
+<label class="file">Wczytaj grid.txt<input id="f" type="file" accept=".txt"></label>
+<button id="def" class="alt">Mapa domyślna</button>
+</div>
+<div id="stat" aria-live="polite"></div>
+<p class="small">Kliknij pole na planszy, aby postawić lub usunąć kamień. Trasa jest liczona od nowa. Start to lewy dolny róg, jabłko leży w prawym górnym.</p>
+</main>
+<script>
+const N=20,S=28,L=6;
+const DEF=`0 0 0 0 0 0 0 0 0 5 5 0 0 0 5 5 5 5 5 0
+0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 5 0
+0 0 0 0 0 0 0 0 5 0 0 0 0 0 0 0 0 0 5 0
+0 0 0 0 0 0 0 0 5 0 0 0 0 0 0 0 0 5 5 0
+0 0 0 0 0 0 5 5 5 5 5 5 0 0 0 0 0 5 5 0
+0 0 0 0 0 0 0 0 5 0 5 5 0 0 0 0 0 5 5 0
+0 0 0 0 0 0 0 0 5 0 5 5 0 0 0 0 0 5 0 0
+0 0 0 0 0 0 0 0 5 0 5 5 0 0 0 0 0 5 0 0
+0 0 0 5 0 0 0 0 5 0 5 5 0 0 0 0 0 5 0 0
+0 0 0 5 0 0 0 0 5 0 0 5 0 0 0 0 5 5 0 0
+0 0 0 5 0 0 0 0 5 0 0 0 0 0 0 0 5 5 0 0
+0 0 0 5 0 0 0 0 0 0 5 0 0 0 5 5 5 5 5 5
+0 0 0 5 0 0 0 0 0 0 5 0 0 0 0 0 5 0 0 0
+0 0 0 0 5 0 0 0 0 0 5 5 5 5 5 5 0 0 0 0
+0 0 0 0 5 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+0 0 0 0 5 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0`;
+const cv=document.getElementById('c'),ctx=cv.getContext('2d');
+const $=id=>document.getElementById(id);
+let grid,path,exp,idx=0,run=false,last=0,acc=0;
+
+function parse(t){
+  const v=t.trim().split(/\s+/).map(Number);
+  if(v.length<N*N||v.some(isNaN))return null;
+  const g=[];for(let y=0;y<N;y++)g.push(new Array(N).fill(0));
+  for(let i=0;i<N;i++)for(let x=0;x<N;x++)g[N-1-i][x]=v[i*N+x]; // pierwsza linia pliku = górny wiersz
+  return g;
+}
+
+// A* według pseudokodu: ruchy góra, dół, lewo, prawo; konflikty: najpóźniej napotkane pole
+const D=[[0,1],[0,-1],[-1,0],[1,0]];
+function astar(g){
+  const nd=[];
+  for(let y=0;y<N;y++){nd.push([]);for(let x=0;x<N;x++)nd[y].push({x,y,g:0,f:Infinity,p:null});}
+  const start=nd[0][0],goal=nd[N-1][N-1];
+  if(g[0][0]==5||g[N-1][N-1]==5)return{path:null,exp:0};
+  const open=[],closed=new Set();
+  const h=n=>Math.hypot(n.x-goal.x,n.y-goal.y);
+  function handle(p){
+    for(const[dx,dy]of D){
+      const x=p.x+dx,y=p.y+dy;
+      if(x<0||x>=N||y<0||y>=N)continue;
+      const n=nd[y][x];
+      if(g[y][x]==5||closed.has(n))continue;
+      const ng=p.g+1,nf=ng+h(n);
+      if(n.f>nf){n.f=nf;n.g=ng;n.p=p;}
+      if(!open.includes(n))open.push(n);
+    }
+  }
+  closed.add(start);handle(start);
+  let cur=start;
+  while(cur!==goal&&open.length){
+    let b=open[open.length-1];
+    for(let i=open.length-1;i>=0;i--)if(open[i].f<b.f)b=open[i];
+    cur=b;open.splice(open.indexOf(cur),1);closed.add(cur);
+    if(cur!==goal)handle(cur);
+  }
+  if(cur!==goal)return{path:null,exp:closed.size};
+  const pth=[];for(let n=goal;n;n=n.p)pth.push(n);
+  return{path:pth.reverse(),exp:closed.size};
+}
+
+function plan(){
+  const r=astar(grid);path=r.path;exp=r.exp;idx=0;run=false;acc=0;
+  $('go').textContent='Start';
+  $('stat').textContent=path?`Trasa ma ${path.length} pól (${path.length-1} ruchów). Przeszukano ${exp} pól.`:'Brak możliwości dotarcia do celu.';
+  draw();
+}
+
+const px=x=>x*S,py=y=>(N-1-y)*S;
+function draw(){
+  for(let y=0;y<N;y++)for(let x=0;x<N;x++){
+    ctx.fillStyle=(x+y)%2?'#6bbf52':'#62b44a';ctx.fillRect(px(x),py(y),S,S);
+    ctx.strokeStyle='#3f8a35';ctx.lineWidth=1.2;
+    for(let k=0;k<3;k++){
+      const hx=((x*73+y*151+k*37)%20)+4,hy=((x*31+y*97+k*53)%18)+8;
+      ctx.beginPath();ctx.moveTo(px(x)+hx,py(y)+hy);ctx.lineTo(px(x)+hx+1.5,py(y)+hy-5);ctx.stroke();
+    }
+  }
+  if($('show').checked&&path){
+    ctx.fillStyle='rgba(255,255,255,.55)';
+    for(const n of path){ctx.beginPath();ctx.arc(px(n.x)+S/2,py(n.y)+S/2,3,0,7);ctx.fill();}
+  }
+  for(let y=0;y<N;y++)for(let x=0;x<N;x++)if(grid[y][x]==5)stone(px(x),py(y),x*7+y*3);
+  const eaten=path&&idx>=path.length-1;
+  if(!eaten)apple(px(N-1)+S/2,py(N-1)+S/2);
+  if(path)snake();
+  else{ctx.fillStyle='rgba(0,0,0,.35)';ctx.fillRect(0,0,cv.width,cv.height);
+    ctx.fillStyle='#fff';ctx.font='20px Georgia';ctx.textAlign='center';ctx.fillText('Brak drogi do jabłka',cv.width/2,cv.height/2);}
+}
+function stone(x,y,s){
+  const c=x+S/2,d=y+S/2;
+  ctx.fillStyle='rgba(0,0,0,.25)';ctx.beginPath();ctx.ellipse(c+1,d+4,S*.42,S*.3,0,0,7);ctx.fill();
+  ctx.fillStyle=s%2?'#8d8f93':'#7d8084';ctx.beginPath();ctx.ellipse(c,d+1,S*.44,S*.36,0,0,7);ctx.fill();
+  ctx.fillStyle='rgba(255,255,255,.28)';ctx.beginPath();ctx.ellipse(c-4,d-4,S*.18,S*.1,-.5,0,7);ctx.fill();
+}
+function apple(c,d){
+  ctx.fillStyle='#d62828';ctx.beginPath();ctx.arc(c-3,d+1,S*.3,0,7);ctx.arc(c+3,d+1,S*.3,0,7);ctx.fill();
+  ctx.fillStyle='rgba(255,255,255,.4)';ctx.beginPath();ctx.arc(c-5,d-3,2.5,0,7);ctx.fill();
+  ctx.strokeStyle='#5a3a1a';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(c,d-5);ctx.lineTo(c+1,d-11);ctx.stroke();
+  ctx.fillStyle='#2f7d2a';ctx.beginPath();ctx.ellipse(c+6,d-9,5,2.5,-.5,0,7);ctx.fill();
+}
+function snake(){
+  const seg=path.slice(Math.max(0,idx-L+1),idx+1);
+  const cx=n=>px(n.x)+S/2,cy=n=>py(n.y)+S/2;
+  ctx.lineCap='round';ctx.lineJoin='round';
+  if(seg.length>1){
+    ctx.strokeStyle='#0f4c5c';ctx.lineWidth=S*.62;
+    ctx.beginPath();ctx.moveTo(cx(seg[0]),cy(seg[0]));
+    for(const n of seg)ctx.lineTo(cx(n),cy(n));ctx.stroke();
+    ctx.strokeStyle='#e9c46a';ctx.lineWidth=3;ctx.setLineDash([4,8]);
+    ctx.beginPath();ctx.moveTo(cx(seg[0]),cy(seg[0]));
+    for(const n of seg)ctx.lineTo(cx(n),cy(n));ctx.stroke();ctx.setLineDash([]);
+  }
+  const h=seg[seg.length-1],pv=seg.length>1?seg[seg.length-2]:{x:h.x,y:h.y-1};
+  let dx=h.x-pv.x,dy=-(h.y-pv.y);if(!dx&&!dy)dy=-1;
+  const hx=cx(h),hy=cy(h),ex=-dy,ey=dx;
+  ctx.fillStyle='#0f4c5c';ctx.beginPath();ctx.arc(hx,hy,S*.38,0,7);ctx.fill();
+  ctx.fillStyle='#fff';
+  for(const s of[-1,1]){ctx.beginPath();ctx.arc(hx+dx*5+ex*5*s,hy+dy*5+ey*5*s,3.2,0,7);ctx.fill();}
+  ctx.fillStyle='#111';
+  for(const s of[-1,1]){ctx.beginPath();ctx.arc(hx+dx*6+ex*5*s,hy+dy*6+ey*5*s,1.5,0,7);ctx.fill();}
+  if(!(path&&idx>=path.length-1)){
+    ctx.strokeStyle='#d62828';ctx.lineWidth=2;ctx.beginPath();
+    ctx.moveTo(hx+dx*S*.38,hy+dy*S*.38);ctx.lineTo(hx+dx*S*.62,hy+dy*S*.62);ctx.stroke();
+  }
+}
+
+function loop(t){
+  if(run&&path){
+    acc+=t-last;
+    const step=1100/(+$('spd').value*1.6);
+    while(acc>=step&&idx<path.length-1){idx++;acc-=step;}
+    if(idx>=path.length-1){run=false;$('go').textContent='Start';
+      $('stat').textContent=`Jabłko zjedzone po ${path.length-1} ruchach.`;}
+    draw();
+  }
+  last=t;requestAnimationFrame(loop);
+}
+
+$('go').onclick=()=>{
+  if(!path)return;
+  if(idx>=path.length-1){idx=0;}
+  run=!run;$('go').textContent=run?'Pauza':'Start';draw();
+};
+$('reset').onclick=plan;
+$('show').onchange=draw;
+$('def').onclick=()=>{grid=parse(DEF);plan();};
+$('f').onchange=e=>{
+  const f=e.target.files[0];if(!f)return;
+  const r=new FileReader();
+  r.onload=()=>{const g=parse(String(r.result));
+    if(g){grid=g;plan();}else $('stat').textContent='Plik musi zawierać 20 wierszy po 20 liczb.';};
+  r.readAsText(f);e.target.value='';
+};
+cv.onclick=e=>{
+  const b=cv.getBoundingClientRect(),k=cv.width/b.width;
+  const x=Math.floor((e.clientX-b.left)*k/S),y=N-1-Math.floor((e.clientY-b.top)*k/S);
+  if(x<0||x>=N||y<0||y>=N)return;
+  if((x==0&&y==0)||(x==N-1&&y==N-1))return;
+  grid[y][x]=grid[y][x]==5?0:5;plan();
+};
+grid=parse(DEF);plan();requestAnimationFrame(loop);
+</script>
+</body>
+</html>
